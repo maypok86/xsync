@@ -653,6 +653,7 @@ func (m *Map[K, V]) doCompute(
 			rootb.mu.Unlock()
 			goto compute_attempt
 		}
+		var prevb *bucketPadded
 		b := rootb
 		for {
 			metaw := b.meta
@@ -677,6 +678,9 @@ func (m *Map[K, V]) doCompute(
 							newmetaw := setByte(metaw, 0, idx)
 							atomic.StoreUint64(&b.meta, newmetaw)
 							atomic.StorePointer(&b.entries[idx], nil)
+							if newmetaw == 0 && prevb != nil {
+								unlinkBucket(prevb, b)
+							}
 							rootb.mu.Unlock()
 							table.addSize(bidx, -1)
 							// Might need to shrink the table if we left bucket empty.
@@ -761,6 +765,7 @@ func (m *Map[K, V]) doCompute(
 					return newValue, computeOnly
 				}
 			}
+			prevb = b
 			b = (*bucketPadded)(b.next)
 		}
 	}
@@ -1145,7 +1150,11 @@ delete_loop_attempt:
 			goto delete_loop_attempt
 		}
 
-		var bucketDeleted int
+		var (
+			bucketDeleted int
+			stopped       bool
+			prevb         *bucketPadded
+		)
 		b := rootb
 		for {
 			for i := range entriesPerMapBucket {
@@ -1165,27 +1174,29 @@ delete_loop_attempt:
 						}
 					}
 					if stop {
-						rootb.mu.Unlock()
-						totalDeleted += bucketDeleted
-						if bucketDeleted > 0 {
-							table.addSize(uint64(bidx), -bucketDeleted)
-						}
-						if anyBucketEmptied {
-							m.resize(table, mapShrinkHint)
-						}
-						return totalDeleted
+						stopped = true
+						break
 					}
 				}
 			}
-			if b.next == nil {
+			nextb := (*bucketPadded)(b.next)
+			if b.meta == 0 && prevb != nil {
+				unlinkBucket(prevb, b)
+			} else {
+				prevb = b
+			}
+			if stopped || nextb == nil {
 				break
 			}
-			b = (*bucketPadded)(b.next)
+			b = nextb
 		}
 		rootb.mu.Unlock()
 		if bucketDeleted > 0 {
 			totalDeleted += bucketDeleted
 			table.addSize(uint64(bidx), -bucketDeleted)
+		}
+		if stopped {
+			break
 		}
 	}
 	if anyBucketEmptied {
@@ -1202,6 +1213,17 @@ func (m *Map[K, V]) Clear() {
 // Size returns current size of the map.
 func (m *Map[K, V]) Size() int {
 	return int(m.table.Load().sumSize())
+}
+
+// unlinkBucket removes emptied overflow bucket b from chain after prevb.
+// Without it, chain keeps longest length it ever had until next resize,
+// so map with stable size under churn wastes memory and misses walk
+// extra buckets. Caller must hold root bucket lock.
+//
+// b.next stays intact: lock-free reader standing in b sees empty meta
+// and still reaches rest of chain, so present key can't be missed.
+func unlinkBucket(prevb, b *bucketPadded) {
+	atomic.StorePointer(&prevb.next, b.next)
 }
 
 // It is safe to use plain stores here because the destination bucket must be
