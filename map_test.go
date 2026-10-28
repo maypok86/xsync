@@ -1135,6 +1135,23 @@ func TestMap_IntKeyDetection(t *testing.T) {
 	}
 }
 
+func TestMapResize_LateGrowDoesNotGrowAgain(t *testing.T) {
+	// A writer that saw a full chain unlocks its bucket and only then starts
+	// the resize. If another writer has grown the table in between, the late
+	// one must not grow the new table again.
+	m := NewMap[int, int]()
+	seen := LoadMapTable(m)
+	GrowMap(m, seen)
+	grown := m.Stats().RootBuckets
+	GrowMap(m, seen)
+	if l := m.Stats().RootBuckets; l != grown {
+		t.Fatalf("a table of %d buckets was expected, got: %d", grown, l)
+	}
+	if g := m.Stats().TotalGrowths; g != 1 {
+		t.Fatalf("one growth was expected, got: %d", g)
+	}
+}
+
 func testMapStoreThenDeleteKeys[K integerKey](t *testing.T, numEntries int) {
 	t.Helper()
 	m := NewMap[K, K]()

@@ -811,6 +811,12 @@ func (m *Map[K, V]) resize(knownTable *mapTable[K, V], hint mapResizeHint) {
 	tableLen := len(table.buckets)
 	switch hint {
 	case mapGrowHint:
+		if table != knownTable {
+			// Caller saw full chain in older table, unlocked, then lost race:
+			// someone grew table in between. Growing again would double it twice.
+			m.cancelResize(seq)
+			return
+		}
 		// Grow the table with factor of 2.
 		// We must keep the same table seed here to keep the same hash codes
 		// allowing us to avoid locking destination buckets when resizing.
@@ -826,10 +832,7 @@ func (m *Map[K, V]) resize(knownTable *mapTable[K, V], hint mapResizeHint) {
 			newTable = newMapTable[K, V](tableLen>>1, table.seed)
 		} else {
 			// No need to shrink. Wake up all waiters and give up.
-			m.resizeMu.Lock()
-			m.resizeCtl.Store(resizeCtl(seq+2, 0))
-			m.resizeCond.Broadcast()
-			m.resizeMu.Unlock()
+			m.cancelResize(seq)
 			return
 		}
 	case mapClearHint:
@@ -865,6 +868,15 @@ func (m *Map[K, V]) resize(knownTable *mapTable[K, V], hint mapResizeHint) {
 	for !m.resizeCtl.CompareAndSwap(ctl, newCtl) {
 		runtime.Gosched()
 	}
+	m.resizeCond.Broadcast()
+	m.resizeMu.Unlock()
+}
+
+// cancelResize ends resize started by CAS to seq+1 without new table
+// and wakes up waiters.
+func (m *Map[K, V]) cancelResize(seq uint64) {
+	m.resizeMu.Lock()
+	m.resizeCtl.Store(resizeCtl(seq+2, 0))
 	m.resizeCond.Broadcast()
 	m.resizeMu.Unlock()
 }

@@ -52,3 +52,11 @@ func HashUint64(seed, v uint64) uint64 {
 func MapIntKey[K comparable, V any](m *Map[K, V]) bool {
 	return m.intKey
 }
+
+func LoadMapTable[K comparable, V any](m *Map[K, V]) any {
+	return m.table.Load()
+}
+
+func GrowMap[K comparable, V any](m *Map[K, V], knownTable any) {
+	m.resize(knownTable.(*mapTable[K, V]), mapGrowHint)
+}
