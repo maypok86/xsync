@@ -48,3 +48,7 @@ func NextPowOf2(v uint64) uint64 {
 func HashUint64(seed, v uint64) uint64 {
 	return hashUint64(seed, v)
 }
+
+func MapIntKey[K comparable, V any](m *Map[K, V]) bool {
+	return m.intKey
+}

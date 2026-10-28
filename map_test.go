@@ -1114,6 +1114,27 @@ func TestMapCompute_CancelOpOnOverflowBucket(t *testing.T) {
 	}
 }
 
+func TestMap_IntKeyDetection(t *testing.T) {
+	type userID int64
+	type port uint16
+	type name string
+	if !MapIntKey(NewMap[int, int]()) {
+		t.Fatal("int key should use integer hashing")
+	}
+	if !MapIntKey(NewMap[userID, int]()) {
+		t.Fatal("named int64 key should use integer hashing")
+	}
+	if !MapIntKey(NewMap[port, int]()) {
+		t.Fatal("named uint16 key should use integer hashing")
+	}
+	if MapIntKey(NewMap[name, int]()) {
+		t.Fatal("named string key should not use integer hashing")
+	}
+	if MapIntKey(NewMap[point, int]()) {
+		t.Fatal("struct key should not use integer hashing")
+	}
+}
+
 func testMapStoreThenDeleteKeys[K integerKey](t *testing.T, numEntries int) {
 	t.Helper()
 	m := NewMap[K, K]()

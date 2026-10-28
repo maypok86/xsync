@@ -6,6 +6,7 @@ import (
 	"iter"
 	"math"
 	"math/bits"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -239,10 +240,12 @@ func NewMap[K comparable, V any](options ...func(*MapConfig)) *Map[K, V] {
 }
 
 // detectIntKey returns true if the key type is an integer type.
+// Checks kind, not type, so named types like `type ID int64` qualify too.
 func detectIntKey[K comparable]() bool {
-	var zero K
-	switch any(zero).(type) {
-	case int, uint, uintptr, int64, uint64, int32, uint32, int16, uint16, int8, uint8:
+	switch reflect.TypeFor[K]().Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Uintptr:
 		return true
 	default:
 		return false
